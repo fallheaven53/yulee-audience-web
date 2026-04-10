@@ -16,6 +16,7 @@ st.set_page_config(
 )
 
 from data_manager import AudienceManager, GENRES
+from cross_sync import load_satisfaction_all, clear_satisfaction_cache
 
 # ══════════════════════════════════════════════════════════════
 #  데이터 연결
@@ -295,6 +296,26 @@ def render_tab_records():
                     st.success("삭제 완료!")
                     st.rerun()
 
+            # ── 만족도분석기 연동 (읽기 전용) ──
+            st.divider()
+            st.markdown(f"**🔗 {sel_rec['회차']}회차 만족도분석기 연동**")
+            sat_all = load_satisfaction_all()
+            sat = sat_all.get(sel_rec["회차"])
+            if sat is None:
+                if sat_all:
+                    st.warning("만족도 미실시")
+                elif "satisfaction_sheet_id" in st.secrets and st.secrets.get("satisfaction_sheet_id"):
+                    st.error("연동 데이터 불러오기 실패")
+                else:
+                    st.caption("만족도 시트 미연동 (secrets)")
+            else:
+                mc = st.columns(4)
+                mc[0].metric("응답자 수", f"{sat.get('응답자수', 0):,}명")
+                mc[1].metric("Q4 전반 만족(긍정률)", f"{sat.get('Q4_pos', 0)}%")
+                mc[2].metric("Q16 재참여 의향", f"{sat.get('Q16_pos', 0)}%")
+                mc[3].metric("Q17 추천 의향", f"{sat.get('Q17_pos', 0)}%")
+                st.caption("※ 읽기 전용 — 값은 만족도분석기 웹앱에서 수정하세요.")
+
         # ── 상태바 ──
         s = dm.calc_summary(records)
         st.markdown(
@@ -461,6 +482,126 @@ def render_tab_analysis():
 
 
 # ══════════════════════════════════════════════════════════════
+#  탭 4: 통합 대시보드 (관객통계 × 만족도분석기)
+# ══════════════════════════════════════════════════════════════
+
+def render_tab_integrated():
+    import plotly.graph_objects as go
+
+    dm = get_dm()
+    sat_all = load_satisfaction_all()
+    records = dm.get_records()
+
+    if not records:
+        st.info("등록된 관객통계가 없습니다.")
+        return
+
+    if not sat_all:
+        if "satisfaction_sheet_id" in st.secrets and st.secrets.get("satisfaction_sheet_id"):
+            st.error("연동 데이터 불러오기 실패")
+        else:
+            st.warning("만족도 시트 ID가 secrets에 등록되지 않았습니다. "
+                       "Streamlit Cloud Advanced settings → Secrets 에 "
+                       "`satisfaction_sheet_id = \"1IUxzdOIyXV8Meej9tgkkPe66b7Mq7ix6UeRphpKCnok\"` 를 추가하세요.")
+        return
+
+    # ── 통합 테이블: 회차별 관객수 대비 응답률 ──
+    st.subheader("📊 회차별 관객수 × 만족도 응답률")
+    rows_int = []
+    for r in records:
+        rnd = r["회차"]
+        sat = sat_all.get(rnd, {})
+        aud = r["공연관객수"] or 0
+        resp = sat.get("응답자수", 0)
+        rate = round(resp / aud * 100, 1) if aud > 0 else 0
+        rows_int.append({
+            "회차": rnd,
+            "공연일": r["공연일"],
+            "출연단체": r["출연단체"],
+            "공연관객수": aud,
+            "만족도 응답자수": resp,
+            "응답률(%)": rate,
+            "Q4 긍정률(%)": sat.get("Q4_pos", 0),
+            "Q16 재참여(%)": sat.get("Q16_pos", 0),
+            "Q17 추천(%)": sat.get("Q17_pos", 0),
+            "Q2 신규비율(%)": sat.get("Q2_신규비율", 0),
+        })
+    df_int = pd.DataFrame(rows_int)
+    st.dataframe(df_int, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ── 관객수 × Q4 긍정률 이중축 ──
+    st.subheader("📈 관객수 × Q4 전반 만족도 긍정률 추이")
+    rnd_axis = [r["회차"] for r in rows_int]
+    aud_vals = [r["공연관객수"] for r in rows_int]
+    q4_vals = [r["Q4 긍정률(%)"] for r in rows_int]
+
+    fig1 = go.Figure()
+    fig1.add_trace(go.Bar(
+        x=rnd_axis, y=aud_vals, name="공연관객수",
+        marker_color="#4FC3F7",
+    ))
+    fig1.add_trace(go.Scatter(
+        x=rnd_axis, y=q4_vals, name="Q4 긍정률(%)",
+        line=dict(color="#FF7043", width=3),
+        mode="lines+markers",
+        yaxis="y2",
+    ))
+    fig1.update_layout(
+        xaxis=dict(title="회차"),
+        yaxis=dict(title="공연관객수"),
+        yaxis2=dict(title="Q4 긍정률(%)", overlaying="y", side="right",
+                    range=[0, 100]),
+        legend=dict(orientation="h", y=1.12),
+        height=420,
+        template="plotly_dark",
+    )
+    st.plotly_chart(fig1, use_container_width=True)
+
+    st.divider()
+
+    # ── 신규 유입 추세: Q2 '처음이에요' 비율 × 관객수 ──
+    st.subheader("🆕 신규 유입 추세 (Q2 ‘처음이에요’ 비율 × 관객수)")
+    new_vals = [r["Q2 신규비율(%)"] for r in rows_int]
+
+    fig2 = go.Figure()
+    fig2.add_trace(go.Bar(
+        x=rnd_axis, y=aud_vals, name="공연관객수",
+        marker_color="#81C784",
+    ))
+    fig2.add_trace(go.Scatter(
+        x=rnd_axis, y=new_vals, name="신규 관객 비율(%)",
+        line=dict(color="#CE93D8", width=3),
+        mode="lines+markers",
+        yaxis="y2",
+    ))
+    fig2.update_layout(
+        xaxis=dict(title="회차"),
+        yaxis=dict(title="공연관객수"),
+        yaxis2=dict(title="신규 비율(%)", overlaying="y", side="right",
+                    range=[0, 100]),
+        legend=dict(orientation="h", y=1.12),
+        height=420,
+        template="plotly_dark",
+    )
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # ── 요약 지표 ──
+    st.divider()
+    st.subheader("📋 통합 요약")
+    valid_rate = [r["응답률(%)"] for r in rows_int if r["응답률(%)"] > 0]
+    valid_q4 = [r["Q4 긍정률(%)"] for r in rows_int if r["Q4 긍정률(%)"] > 0]
+    mc = st.columns(4)
+    mc[0].metric("총 관객수", f"{sum(aud_vals):,}명")
+    mc[1].metric("총 응답자수", f"{sum(r['만족도 응답자수'] for r in rows_int):,}명")
+    mc[2].metric("평균 응답률",
+                 f"{round(sum(valid_rate)/len(valid_rate), 1) if valid_rate else 0}%")
+    mc[3].metric("평균 Q4 긍정률",
+                 f"{round(sum(valid_q4)/len(valid_q4), 1) if valid_q4 else 0}%")
+
+
+# ══════════════════════════════════════════════════════════════
 #  메인
 # ══════════════════════════════════════════════════════════════
 
@@ -468,16 +609,28 @@ def main():
     st.title("📊 율이공방 — 관객통계")
     st.caption("2026 토요상설공연 관객통계 등록·분석")
 
-    # 사이드바: 구글 시트 새로고침
+    # 사이드바: 구글 시트 새로고침 + 연동 상태
     with st.sidebar:
         st.header("설정")
         if st.button("🔄 구글 시트 새로고침", use_container_width=True):
+            clear_satisfaction_cache()
             reload_dm()
+        if st.button("🔄 만족도 연동 새로고침", use_container_width=True):
+            clear_satisfaction_cache()
+            st.rerun()
+        _sat = load_satisfaction_all()
+        if _sat:
+            st.success(f"🔗 만족도 연동: {len(_sat)}회차")
+        elif "satisfaction_sheet_id" in st.secrets and st.secrets.get("satisfaction_sheet_id"):
+            st.warning("🔗 만족도 연동 실패")
+        else:
+            st.caption("🔗 만족도 미연동 (secrets)")
 
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📝 관객통계 등록·관리",
         "📅 월별·연간 집계",
         "📊 장르별·단체별 통계",
+        "🔗 통합 대시보드",
     ])
 
     with tab1:
@@ -486,6 +639,8 @@ def main():
         render_tab_monthly()
     with tab3:
         render_tab_analysis()
+    with tab4:
+        render_tab_integrated()
 
 
 if __name__ == "__main__":
