@@ -162,4 +162,5 @@ class AudienceSheetSync:
         except Exception:
             pass
 
-        dm.save()
+        if hasattr(dm, "save"):
+            dm.save()
