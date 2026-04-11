@@ -20,8 +20,14 @@ class AudienceManager:
 
     # ── CRUD ──
     def save_round(self, rnd, round_info, audience_info):
-        """회차 데이터 저장 (등록/수정 겸용)"""
+        """회차 데이터 저장 (등록/수정 겸용)
+
+        총방문객수는 더 이상 입력받지 않으며, 기존 시트에 남아있던 값을
+        유지하기 위해 저장 시 dm.audience의 기존 총방문객수를 그대로 보존한다.
+        """
         self.rounds[rnd] = round_info
+        existing_total = self.audience.get(rnd, {}).get("총방문객수", 0)
+        audience_info.setdefault("총방문객수", existing_total)
         self.audience[rnd] = audience_info
         self._sync()
 

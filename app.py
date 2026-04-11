@@ -139,7 +139,6 @@ def render_tab_records():
             def_weather = rd.get("날씨", "")
             def_perf = aud.get("공연관객수", 0)
             def_exp = aud.get("체험참여수", 0)
-            def_total = aud.get("총방문객수", 0)
             def_method = aud.get("카운트방법", "")
             def_note = aud.get("비고", "")
         else:
@@ -149,7 +148,6 @@ def render_tab_records():
             def_weather = ""
             def_perf = 0
             def_exp = 0
-            def_total = 0
             def_method = ""
             def_note = ""
 
@@ -171,26 +169,33 @@ def render_tab_records():
             genre = st.selectbox("장르", genre_opts, index=genre_idx,
                                  key="form_genre")
 
-        c5, c6, c7, c8, c9 = st.columns(5)
+        c5, c6, c7, c8 = st.columns(4)
         with c5:
             weather_opts = ["", "맑음", "흐림", "비", "눈", "기타"]
             w_idx = weather_opts.index(def_weather) if def_weather in weather_opts else 0
             weather = st.selectbox("날씨", weather_opts, index=w_idx,
                                    key="form_weather")
         with c6:
-            perf = st.number_input("공연관객수", min_value=0, value=def_perf,
-                                   key="form_perf")
+            perf = st.number_input(
+                "방문객수(공식)", min_value=0, value=def_perf,
+                key="form_perf",
+                help="경비일지·동구청 보고·결과보고서 공통 공식 숫자",
+            )
         with c7:
-            exp = st.number_input("체험참여수", min_value=0, value=def_exp,
-                                  key="form_exp")
+            exp = st.number_input(
+                "체험참여수", min_value=0, value=def_exp,
+                key="form_exp",
+                help="방문객 중 체험에 참여한 인원 (방문객수 이하)",
+            )
         with c8:
-            total = st.number_input("총방문객수", min_value=0, value=def_total,
-                                    key="form_total")
-        with c9:
             method_opts = ["", "수동카운트", "좌석기준", "추정"]
             m_idx = method_opts.index(def_method) if def_method in method_opts else 0
             method = st.selectbox("카운트방법", method_opts, index=m_idx,
                                   key="form_method")
+
+        # 체험참여수 검증
+        if exp > perf and perf > 0:
+            st.warning(f"⚠ 체험참여수({exp})가 방문객수({perf})보다 큽니다. 확인해주세요.")
 
         note = st.text_input("비고", value=def_note, key="form_note")
 
@@ -222,9 +227,8 @@ def render_tab_records():
                 "날씨": weather,
             }
             audience_info = {
-                "공연관객수": perf,
+                "공연관객수": perf,  # 내부 키(호환) — 화면엔 '방문객수(공식)'으로 표시
                 "체험참여수": exp,
-                "총방문객수": total,
                 "카운트방법": method,
                 "비고": note,
             }
@@ -269,8 +273,10 @@ def render_tab_records():
     if records:
         df = pd.DataFrame(records)
         display_cols = ["회차", "공연일", "출연단체", "장르", "공연관객수",
-                        "체험참여수", "총방문객수", "비고"]
-        df_show = df[[c for c in display_cols if c in df.columns]]
+                        "체험참여수", "비고"]
+        df_show = df[[c for c in display_cols if c in df.columns]].rename(
+            columns={"공연관객수": "방문객수(공식)"}
+        )
 
         sel = st.dataframe(df_show, use_container_width=True, hide_index=True,
                            on_select="rerun", selection_mode="single-row",
@@ -320,13 +326,13 @@ def render_tab_records():
         s = dm.calc_summary(records)
         st.markdown(
             f"**표시: {s['total_cnt']}건 · "
-            f"총 관객: {s['total_aud']:,}명 · "
+            f"총 방문객수(공식): {s['total_aud']:,}명 · "
             f"평균: {s['avg_aud']:,}명**"
         )
 
-        # ── 엑셀 내보내기 ──
+        # ── 엑셀 내보내기 (총방문객수 제외, 방문객수(공식) 라벨 통일) ──
         buf = BytesIO()
-        df.to_excel(buf, index=False, engine="openpyxl")
+        df_show.to_excel(buf, index=False, engine="openpyxl")
         st.download_button("📥 엑셀 다운로드", data=buf.getvalue(),
                            file_name=f"관객통계_{datetime.now():%Y%m%d}.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -505,8 +511,8 @@ def render_tab_integrated():
                        "`satisfaction_sheet_id = \"1IUxzdOIyXV8Meej9tgkkPe66b7Mq7ix6UeRphpKCnok\"` 를 추가하세요.")
         return
 
-    # ── 통합 테이블: 회차별 관객수 대비 응답률 ──
-    st.subheader("📊 회차별 관객수 × 만족도 응답률")
+    # ── 통합 테이블: 회차별 방문객수(공식) 대비 응답률 ──
+    st.subheader("📊 회차별 방문객수(공식) × 만족도 응답률")
     rows_int = []
     for r in records:
         rnd = r["회차"]
@@ -518,7 +524,7 @@ def render_tab_integrated():
             "회차": rnd,
             "공연일": r["공연일"],
             "출연단체": r["출연단체"],
-            "공연관객수": aud,
+            "방문객수(공식)": aud,
             "만족도 응답자수": resp,
             "응답률(%)": rate,
             "Q4 긍정률(%)": sat.get("Q4_pos", 0),
@@ -531,15 +537,15 @@ def render_tab_integrated():
 
     st.divider()
 
-    # ── 관객수 × Q4 긍정률 이중축 ──
-    st.subheader("📈 관객수 × Q4 전반 만족도 긍정률 추이")
+    # ── 방문객수 × Q4 긍정률 이중축 ──
+    st.subheader("📈 방문객수(공식) × Q4 전반 만족도 긍정률 추이")
     rnd_axis = [r["회차"] for r in rows_int]
-    aud_vals = [r["공연관객수"] for r in rows_int]
+    aud_vals = [r["방문객수(공식)"] for r in rows_int]
     q4_vals = [r["Q4 긍정률(%)"] for r in rows_int]
 
     fig1 = go.Figure()
     fig1.add_trace(go.Bar(
-        x=rnd_axis, y=aud_vals, name="공연관객수",
+        x=rnd_axis, y=aud_vals, name="방문객수(공식)",
         marker_color="#4FC3F7",
     ))
     fig1.add_trace(go.Scatter(
@@ -550,7 +556,7 @@ def render_tab_integrated():
     ))
     fig1.update_layout(
         xaxis=dict(title="회차"),
-        yaxis=dict(title="공연관객수"),
+        yaxis=dict(title="방문객수(공식)"),
         yaxis2=dict(title="Q4 긍정률(%)", overlaying="y", side="right",
                     range=[0, 100]),
         legend=dict(orientation="h", y=1.12),
@@ -561,13 +567,13 @@ def render_tab_integrated():
 
     st.divider()
 
-    # ── 신규 유입 추세: Q2 '처음이에요' 비율 × 관객수 ──
-    st.subheader("🆕 신규 유입 추세 (Q2 ‘처음이에요’ 비율 × 관객수)")
+    # ── 신규 유입 추세: Q2 '처음이에요' 비율 × 방문객수 ──
+    st.subheader("🆕 신규 유입 추세 (Q2 ‘처음이에요’ 비율 × 방문객수)")
     new_vals = [r["Q2 신규비율(%)"] for r in rows_int]
 
     fig2 = go.Figure()
     fig2.add_trace(go.Bar(
-        x=rnd_axis, y=aud_vals, name="공연관객수",
+        x=rnd_axis, y=aud_vals, name="방문객수(공식)",
         marker_color="#81C784",
     ))
     fig2.add_trace(go.Scatter(
@@ -578,7 +584,7 @@ def render_tab_integrated():
     ))
     fig2.update_layout(
         xaxis=dict(title="회차"),
-        yaxis=dict(title="공연관객수"),
+        yaxis=dict(title="방문객수(공식)"),
         yaxis2=dict(title="신규 비율(%)", overlaying="y", side="right",
                     range=[0, 100]),
         legend=dict(orientation="h", y=1.12),
@@ -593,7 +599,7 @@ def render_tab_integrated():
     valid_rate = [r["응답률(%)"] for r in rows_int if r["응답률(%)"] > 0]
     valid_q4 = [r["Q4 긍정률(%)"] for r in rows_int if r["Q4 긍정률(%)"] > 0]
     mc = st.columns(4)
-    mc[0].metric("총 관객수", f"{sum(aud_vals):,}명")
+    mc[0].metric("총 방문객수(공식)", f"{sum(aud_vals):,}명")
     mc[1].metric("총 응답자수", f"{sum(r['만족도 응답자수'] for r in rows_int):,}명")
     mc[2].metric("평균 응답률",
                  f"{round(sum(valid_rate)/len(valid_rate), 1) if valid_rate else 0}%")
