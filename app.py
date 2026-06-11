@@ -11,12 +11,29 @@ from io import BytesIO
 
 st.set_page_config(
     page_title="율이공방 — 관객통계",
-    page_icon="📊",
+    page_icon="🌙",
     layout="wide",
 )
 
 from data_manager import AudienceManager, GENRES
 from cross_sync import load_satisfaction_all, clear_satisfaction_cache
+
+# 디자인 시스템 (#2026-071) + 코드 마이그레이션 (#2026-070 3단계).
+# yulee-common 불가 시 기존 디자인·기존 코드로 자동 폴백 — 기능 영향 0.
+try:
+    from yulee_common import (
+        apply_style, sidebar_brand, toggle_mode,
+        PLOTLY_TEMPLATE_DARK, get_client as _yc_get_client,
+    )
+    _USE_YULEE_COMMON = True
+    apply_style()
+except Exception:
+    _yc_get_client = None
+    PLOTLY_TEMPLATE_DARK = None
+    _USE_YULEE_COMMON = False
+
+# 차트 템플릿 — yulee-common 토큰 연동, 폴백 시 기존 plotly_dark (#2026-071 8.3)
+_PLOTLY_TEMPLATE = PLOTLY_TEMPLATE_DARK if _USE_YULEE_COMMON else "plotly_dark"
 
 # ══════════════════════════════════════════════════════════════
 #  데이터 연결
@@ -49,17 +66,21 @@ def load_target_dates():
     result = {}
     target_list = []
     try:
-        import gspread
-        from google.oauth2.service_account import Credentials
         if "gcp_service_account" not in st.secrets:
             return result
         if "settlement_spreadsheet_id" not in st.secrets or not st.secrets["settlement_spreadsheet_id"]:
             return result
-        creds = Credentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]),
-            scopes=["https://www.googleapis.com/auth/spreadsheets"])
-        gc = gspread.authorize(creds)
-        sh = gc.open_by_key(st.secrets["settlement_spreadsheet_id"])
+        if _USE_YULEE_COMMON:
+            sh = _yc_get_client(spreadsheet_key="settlement_spreadsheet_id",
+                                slim_scope=True).sh
+        else:
+            import gspread
+            from google.oauth2.service_account import Credentials
+            creds = Credentials.from_service_account_info(
+                dict(st.secrets["gcp_service_account"]),
+                scopes=["https://www.googleapis.com/auth/spreadsheets"])
+            gc = gspread.authorize(creds)
+            sh = gc.open_by_key(st.secrets["settlement_spreadsheet_id"])
 
         cur_year = str(datetime.now().year)
         ws1 = sh.worksheet("단체정보")
@@ -394,7 +415,7 @@ def render_tab_monthly():
         yaxis2=dict(title="누적 관객수", overlaying="y", side="right"),
         legend=dict(orientation="h", y=1.12),
         height=400,
-        template="plotly_dark",
+        template=_PLOTLY_TEMPLATE,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -444,7 +465,7 @@ def render_tab_analysis():
             fig_g.update_layout(
                 yaxis_title="평균 관객수",
                 height=350,
-                template="plotly_dark",
+                template=_PLOTLY_TEMPLATE,
             )
             st.plotly_chart(fig_g, use_container_width=True)
     else:
@@ -479,7 +500,7 @@ def render_tab_analysis():
         fig_t.update_layout(
             yaxis_title="관객수 합계",
             height=350,
-            template="plotly_dark",
+            template=_PLOTLY_TEMPLATE,
             xaxis_tickangle=-45,
         )
         st.plotly_chart(fig_t, use_container_width=True)
@@ -561,7 +582,7 @@ def render_tab_integrated():
                     range=[0, 100]),
         legend=dict(orientation="h", y=1.12),
         height=420,
-        template="plotly_dark",
+        template=_PLOTLY_TEMPLATE,
     )
     st.plotly_chart(fig1, use_container_width=True)
 
@@ -589,7 +610,7 @@ def render_tab_integrated():
                     range=[0, 100]),
         legend=dict(orientation="h", y=1.12),
         height=420,
-        template="plotly_dark",
+        template=_PLOTLY_TEMPLATE,
     )
     st.plotly_chart(fig2, use_container_width=True)
 
@@ -612,11 +633,17 @@ def render_tab_integrated():
 # ══════════════════════════════════════════════════════════════
 
 def main():
-    st.title("📊 율이공방 — 관객통계")
-    st.caption("2026 토요상설공연 관객통계 등록·분석")
+    if _USE_YULEE_COMMON:
+        from yulee_common import header
+        header("관객통계", subtitle="2026 토요상설공연 등록·분석")
+    else:
+        st.title("📊 율이공방 — 관객통계")
+        st.caption("2026 토요상설공연 관객통계 등록·분석")
 
-    # 사이드바: 구글 시트 새로고침 + 연동 상태
+    # 사이드바: 브랜드 + 구글 시트 새로고침 + 연동 상태
     with st.sidebar:
+        if _USE_YULEE_COMMON:
+            sidebar_brand("관객통계")
         st.header("설정")
         if st.button("🔄 구글 시트 새로고침", use_container_width=True):
             clear_satisfaction_cache()
@@ -631,6 +658,11 @@ def main():
             st.warning("🔗 만족도 연동 실패")
         else:
             st.caption("🔗 만족도 미연동 (secrets)")
+
+        # 다크/라이트 토글 (사이드바 하단 — 9.3, 프로토타입 보며 위치 조정 가능)
+        if _USE_YULEE_COMMON:
+            st.markdown("---")
+            toggle_mode()
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "📝 관객통계 등록·관리",

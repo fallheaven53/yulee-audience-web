@@ -4,6 +4,14 @@
 import gspread
 from google.oauth2.service_account import Credentials
 
+# yulee-common 가용 시 인증·시트 접근을 공통 모듈로 위임 (#2026-070 3단계).
+# 가용 안 할 시 기존 로컬 코드 폴백 — 마이그레이션 직후 1개월 안전망.
+try:
+    from yulee_common import GSheetClient
+    _USE_YULEE_COMMON = True
+except ImportError:
+    _USE_YULEE_COMMON = False
+
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
@@ -15,6 +23,16 @@ class AudienceSheetSync:
 
     def __init__(self, credentials_path=None, credentials_dict=None,
                  spreadsheet_id=""):
+        if _USE_YULEE_COMMON:
+            self._client = GSheetClient(
+                credentials_dict=credentials_dict,
+                credentials_path=credentials_path,
+                spreadsheet_id=spreadsheet_id)
+            self.gc = self._client.gc
+            self.sh = self._client.sh
+            return
+
+        self._client = None
         if credentials_dict:
             creds = Credentials.from_service_account_info(
                 credentials_dict, scopes=SCOPES)
@@ -26,6 +44,8 @@ class AudienceSheetSync:
 
     # ── 시트 가져오기 (없으면 생성) ──
     def _ws(self, title, rows=200, cols=20):
+        if self._client is not None:
+            return self._client.ws(title, rows=rows, cols=cols)
         try:
             return self.sh.worksheet(title)
         except gspread.WorksheetNotFound:

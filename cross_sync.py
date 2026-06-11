@@ -5,6 +5,14 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 
+# yulee-common 가용 시 인라인 인증을 get_client로 대체 (#2026-070 3단계).
+try:
+    from yulee_common import get_client as _yc_get_client
+    _USE_YULEE_COMMON = True
+except ImportError:
+    _yc_get_client = None
+    _USE_YULEE_COMMON = False
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 POSITIVE_LEVELS = ["매우 그렇다", "그렇다"]
@@ -44,10 +52,14 @@ def load_satisfaction_all():
     if not sheet_id:
         return {}
     try:
-        creds = Credentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]), scopes=SCOPES)
-        gc = gspread.authorize(creds)
-        sh = gc.open_by_key(sheet_id)
+        if _USE_YULEE_COMMON:
+            sh = _yc_get_client(spreadsheet_key="satisfaction_sheet_id",
+                                slim_scope=True).sh
+        else:
+            creds = Credentials.from_service_account_info(
+                dict(st.secrets["gcp_service_account"]), scopes=SCOPES)
+            gc = gspread.authorize(creds)
+            sh = gc.open_by_key(sheet_id)
 
         result = {}
 
