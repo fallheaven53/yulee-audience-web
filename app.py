@@ -23,17 +23,20 @@ from cross_sync import load_satisfaction_all, clear_satisfaction_cache
 try:
     from yulee_common import (
         apply_style, sidebar_brand, toggle_mode,
-        PLOTLY_TEMPLATE_DARK, get_client as _yc_get_client,
+        PLOTLY_TEMPLATE, CHART_SEQUENCE, get_client as _yc_get_client,
     )
     _USE_YULEE_COMMON = True
     apply_style()
 except Exception:
     _yc_get_client = None
-    PLOTLY_TEMPLATE_DARK = None
+    PLOTLY_TEMPLATE = None
+    CHART_SEQUENCE = None
     _USE_YULEE_COMMON = False
 
-# 차트 템플릿 — yulee-common 토큰 연동, 폴백 시 기존 plotly_dark (#2026-071 8.3)
-_PLOTLY_TEMPLATE = PLOTLY_TEMPLATE_DARK if _USE_YULEE_COMMON else "plotly_dark"
+# 차트 템플릿·팔레트 — yulee-common v0.4.0 라이트 토큰 연동, 폴백 시 plotly_white (#2026-079 [7])
+_PLOTLY_TEMPLATE = PLOTLY_TEMPLATE if _USE_YULEE_COMMON else "plotly_white"
+_CHART = list(CHART_SEQUENCE) if _USE_YULEE_COMMON else \
+    ["#2C5973", "#C9A046", "#5B8BA8", "#A0793A", "#7BA05B", "#A04040"]
 
 # ══════════════════════════════════════════════════════════════
 #  데이터 연결
@@ -403,11 +406,11 @@ def render_tab_monthly():
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=month_labels, y=values, name="월별 관객수",
-        marker_color="#4FC3F7",
+        marker_color=_CHART[0],
     ))
     fig.add_trace(go.Scatter(
         x=month_labels, y=cumulative, name="누적 관객수",
-        line=dict(color="#FF7043", width=3),
+        line=dict(color=_CHART[1], width=3),
         yaxis="y2",
     ))
     fig.update_layout(
@@ -460,7 +463,7 @@ def render_tab_analysis():
             fig_g.add_trace(go.Bar(
                 x=[r["장르"] for r in table_g],
                 y=[r["평균 관객수"] for r in table_g],
-                marker_color=["#4FC3F7", "#81C784", "#FFB74D", "#CE93D8"],
+                marker_color=_CHART[:4],
             ))
             fig_g.update_layout(
                 yaxis_title="평균 관객수",
@@ -495,7 +498,7 @@ def render_tab_analysis():
         fig_t.add_trace(go.Bar(
             x=[r["단체명"] for r in top],
             y=[r["관객수 합계"] for r in top],
-            marker_color="#4FC3F7",
+            marker_color=_CHART[0],
         ))
         fig_t.update_layout(
             yaxis_title="관객수 합계",
@@ -567,11 +570,11 @@ def render_tab_integrated():
     fig1 = go.Figure()
     fig1.add_trace(go.Bar(
         x=rnd_axis, y=aud_vals, name="방문객수(공식)",
-        marker_color="#4FC3F7",
+        marker_color=_CHART[0],
     ))
     fig1.add_trace(go.Scatter(
         x=rnd_axis, y=q4_vals, name="Q4 긍정률(%)",
-        line=dict(color="#FF7043", width=3),
+        line=dict(color=_CHART[1], width=3),
         mode="lines+markers",
         yaxis="y2",
     ))
@@ -595,11 +598,11 @@ def render_tab_integrated():
     fig2 = go.Figure()
     fig2.add_trace(go.Bar(
         x=rnd_axis, y=aud_vals, name="방문객수(공식)",
-        marker_color="#81C784",
+        marker_color=_CHART[2],
     ))
     fig2.add_trace(go.Scatter(
         x=rnd_axis, y=new_vals, name="신규 관객 비율(%)",
-        line=dict(color="#CE93D8", width=3),
+        line=dict(color=_CHART[3], width=3),
         mode="lines+markers",
         yaxis="y2",
     ))
